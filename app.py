@@ -685,8 +685,17 @@ elif st.session_state.current_section == "System Schedule":
                 "SOLAR PV MODULE (PRODUCT NAME)": solar_pv_module,
                 "NO OF SOLAR PV MODULES": no_of_solar_pv_modules,
             }
-            csv_buffer = save_to_pdf_page1(data)
-            st.session_state["csv_data_page1"] = csv_buffer.getvalue()
+            # Convert data to DataFrame
+            df = pd.DataFrame([data])
+            df = df.T.reset_index()
+            df.columns = ['Field', 'Value']
+            
+            # Save to CSV
+            buffer = BytesIO()
+            df.to_csv(buffer, index=False)
+            buffer.seek(0)
+            
+            st.session_state["csv_data_page1"] = buffer.getvalue()
             st.success("CSV file generated successfully!")
             st.download_button(
                 "📄 Download System Summary",
