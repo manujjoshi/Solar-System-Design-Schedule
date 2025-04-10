@@ -52,6 +52,70 @@ def parse_helioscope_data(components_data_str):
     }
     return parsed_data
 
+def save_to_pdf_page1(data, filename="System_Summary.csv"):
+    """Create CSV for System Summary"""
+    # Convert data to DataFrame
+    df = pd.DataFrame([data])
+    df = df.T.reset_index()
+    df.columns = ['Field', 'Value']
+    
+    # Save to CSV
+    buffer = BytesIO()
+    df.to_csv(buffer, index=False)
+    buffer.seek(0)
+    return buffer
+
+def save_to_pdf_page2(dataframe, filename="Feed_Schedule.csv"):
+    """Create CSV for Feed Schedule"""
+    buffer = BytesIO()
+    dataframe.to_csv(buffer, index=False)
+    buffer.seek(0)
+    return buffer
+
+def save_to_pdf_page3(data, filename="Metco_Equipment.csv"):
+    """Create CSV for Metco Equipment"""
+    df = pd.DataFrame(data, columns=["EQUIPMENTS", "MANUFACTURER", "MODEL NUMBER", "FURNISHED BY", "INSTALLED BY"])
+    buffer = BytesIO()
+    df.to_csv(buffer, index=False)
+    buffer.seek(0)
+    return buffer
+
+def save_to_pdf_page4(df, filename="inverter_schedule.csv"):
+    """Create CSV for Inverter Schedule"""
+    buffer = BytesIO()
+    df.to_csv(buffer, index=False)
+    buffer.seek(0)
+    return buffer
+
+def save_to_pdf_page5(df, filename="stringing_table.csv"):
+    """Create CSV for String Table"""
+    buffer = BytesIO()
+    df.to_csv(buffer, index=False)
+    buffer.seek(0)
+    return buffer
+
+def save_to_pdf_page6(panel_details, table_data, filename="panel_schedule.csv"):
+    """Create CSV for Panel Schedule"""
+    # Combine panel details and table data
+    panel_df = pd.DataFrame([panel_details])
+    table_df = pd.DataFrame(table_data)
+    buffer = BytesIO()
+    panel_df.to_csv(buffer, index=False)
+    table_df.to_csv(buffer, mode='a', index=False)
+    buffer.seek(0)
+    return buffer
+
+def merge_files(file_list, output_filename="Combined_Report.csv"):
+    """Merge multiple CSV files into one"""
+    with open(output_filename, 'w') as outfile:
+        for i, file in enumerate(file_list):
+            if file and os.path.exists(file):
+                with open(file, 'r') as infile:
+                    if i > 0:  # Skip header for all but first file
+                        next(infile)
+                    outfile.write(infile.read())
+    return output_filename
+
 # --- Page 1 Functions ---
 def save_to_pdf_page1(data, filename="System_Summary.xlsx"):
     """Create Excel for System Summary"""
@@ -621,14 +685,14 @@ elif st.session_state.current_section == "System Schedule":
                 "SOLAR PV MODULE (PRODUCT NAME)": solar_pv_module,
                 "NO OF SOLAR PV MODULES": no_of_solar_pv_modules,
             }
-            excel_buffer = save_to_pdf_page1(data)
-            st.session_state["excel_data_page1"] = excel_buffer.getvalue()
-            st.success("Excel file generated successfully!")
+            csv_buffer = save_to_pdf_page1(data)
+            st.session_state["csv_data_page1"] = csv_buffer.getvalue()
+            st.success("CSV file generated successfully!")
             st.download_button(
                 "📄 Download System Summary",
-                data=st.session_state["excel_data_page1"],
-                file_name="System_Summary.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                data=st.session_state["csv_data_page1"],
+                file_name="System_Summary.csv",
+                mime="text/csv"
             )
     
     elif st.session_state.current_page == "Feed Schedule":
