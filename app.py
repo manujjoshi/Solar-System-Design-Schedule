@@ -53,21 +53,38 @@ def parse_helioscope_data(components_data_str):
     return parsed_data
 
 # --- Page 1 Functions ---
-def save_to_pdf_page1(data, filename="System_Summary.pdf"):
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.add_page()
-    pdf.set_font("Arial", style="B", size=14)
-    pdf.cell(200, 10, "System Summary", ln=True, align="C")
-    pdf.ln(10)
-    pdf.set_font("Arial", size=12)
-    for label, value in data.items():
-        pdf.set_font("Arial", style="B", size=8)
-        pdf.cell(60, 10, label, border=1)
-        pdf.set_font("Arial", size=8)
-        pdf.cell(130, 10, value, border=1, ln=True)
-    pdf.output(filename)
-    return filename
+def save_to_pdf_page1(data, filename="System_Summary.xlsx"):
+    """Create Excel for System Summary"""
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        # Convert data to DataFrame
+        df = pd.DataFrame([data])
+        df = df.T.reset_index()
+        df.columns = ['Field', 'Value']
+        
+        # Write to Excel
+        df.to_excel(writer, sheet_name='System Summary', index=False)
+        
+        # Get the worksheet
+        worksheet = writer.sheets['System Summary']
+        
+        # Set column widths
+        worksheet.set_column('A:A', 40)  # Field column
+        worksheet.set_column('B:B', 60)  # Value column
+        
+        # Add header formatting
+        header_format = writer.book.add_format({
+            'bold': True,
+            'bg_color': '#D9D9D9',
+            'border': 1
+        })
+        
+        # Apply header formatting
+        for col_num, value in enumerate(df.columns.values):
+            worksheet.write(0, col_num, value, header_format)
+    
+    buffer.seek(0)
+    return buffer
 
 # --- Page 2 Functions ---
 def generate_pdf_page2(dataframe, filename="Feed_Schedule.pdf"):
@@ -604,16 +621,15 @@ elif st.session_state.current_section == "System Schedule":
                 "SOLAR PV MODULE (PRODUCT NAME)": solar_pv_module,
                 "NO OF SOLAR PV MODULES": no_of_solar_pv_modules,
             }
-            pdf_file = save_to_pdf_page1(data)
-            with open(pdf_file, "rb") as file:
-                st.session_state["pdf_data_page1"] = file.read()
-                st.success("PDF generated successfully!")
-                st.download_button(
-                    "📄 Download System Summary PDF",
-                    data=st.session_state["pdf_data_page1"],
-                    file_name="System_Summary.pdf",
-                    mime="application/pdf"
-                )
+            excel_buffer = save_to_pdf_page1(data)
+            st.session_state["excel_data_page1"] = excel_buffer.getvalue()
+            st.success("Excel file generated successfully!")
+            st.download_button(
+                "📄 Download System Summary",
+                data=st.session_state["excel_data_page1"],
+                file_name="System_Summary.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
     
     elif st.session_state.current_page == "Feed Schedule":
         st.title("Feed Schedule - 600V MAX")
