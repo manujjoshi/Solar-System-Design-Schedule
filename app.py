@@ -1,25 +1,13 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
 import io
-import PyPDF2
-import re
 import os
 from datetime import datetime
-from fpdf import FPDF
-from PyPDF2 import PdfMerger, PdfReader
+import base64
 from io import BytesIO
-from reportlab.lib.pagesizes import landscape, letter
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
-from reportlab.lib import colors
 import json
 from functools import lru_cache
-import base64
 
 # Cache PDF parsing functions with string conversion
 @lru_cache(maxsize=32)
@@ -179,40 +167,12 @@ def fill_table_page5(data, num_inverters, best_panels_per_string, remainder, no_
     return data
 
 def create_pdf_page5(df):
+    """Create Excel for String Table"""
     buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=landscape(letter))
-    elements = []
-
-    headers = [f"{col[0]}\n{col[1]}\n{col[2]}" if col[1] else col[0] for col in df.columns]
-    data_list = [headers] + df.values.tolist()
-
-    # Dynamic font size and column width adjustment
-    col_count = len(headers)
-    row_count = len(data_list)
-    max_column_width = 600 // col_count
-    column_widths = [max(40, max_column_width)] * col_count  # Ensure columns are not too narrow
-
-    # Adjust font size based on row count to fit the table better
-    font_size = 6 if row_count > 30 else 7  # If there are too many rows, reduce font size
-    header_font_size = 5  # Smaller font size for headers
-
-    table = Table(data_list, colWidths=column_widths)
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
-        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE", (0, 0), (-1, 0), header_font_size),  # Smaller font size for headers
-        ("FONTSIZE", (0, 1), (-1, -1), font_size),  # Adjusted font size for table content
-        ("BOTTOMPADDING", (0, 0), (-1, 0), 5),
-        ("BACKGROUND", (0, 1), (-1, -1), colors.beige),
-        ("GRID", (0, 0), (-1, -1), 1, colors.black),
-        ("WORDWRAP", (0, 0), (-1, -1)),
-    ]))
-
-    elements.append(table)
-    doc.build(elements)
-    
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        df.to_excel(writer, sheet_name='String Table', index=False)
+        worksheet = writer.sheets['String Table']
+        worksheet.set_column('A:Z', 15)
     buffer.seek(0)
     return buffer
 
@@ -258,6 +218,7 @@ def generate_pdf_page6(panel_details, table_data):
 
 # --- Common Functions ---
 def merge_pdfs(pdf_list, output_filename="Combined_Report.xlsx"):
+    """Merge multiple Excel files into one"""
     with pd.ExcelWriter(output_filename, engine='xlsxwriter') as writer:
         for pdf in pdf_list:
             if pdf and os.path.exists(pdf):
