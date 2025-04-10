@@ -1,64 +1,49 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import io
-import os
-from datetime import datetime
-import base64
+from fpdf import FPDF
+from PyPDF2 import PdfMerger, PdfReader
 from io import BytesIO
-import json
-from functools import lru_cache
+from reportlab.lib.pagesizes import landscape, letter
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
+import os
 import re
-
-# Remove all PDF-related imports and functions
-# from reportlab.lib import colors
-# from reportlab.lib.pagesizes import letter
-# from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
-# from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-# from reportlab.lib.units import inch
-# import PyPDF2
-# from fpdf import FPDF
-# from PyPDF2 import PdfMerger, PdfReader
+from functools import lru_cache
+import json
 
 # Cache PDF parsing functions with string conversion
 @lru_cache(maxsize=32)
 def extract_components_from_pdf(pdf_content):
-    """Extract components from PDF content"""
-    # Convert PDF content to text (simplified version)
-    text = pdf_content.decode('utf-8', errors='ignore')
-    
+    reader = PdfReader(BytesIO(pdf_content))
     components_data = {
         "inverters": [],
         "modules": [],
         "strings": []
     }
     
-    # Extract inverter information
-    inverter_matches = re.findall(r'Inverter\s*:\s*([^\n]+)', text)
-    if inverter_matches:
-        components_data["inverters"].extend(inverter_matches)
+    for page in reader.pages:
+        text = page.extract_text()
+        
+        # Extract inverter information
+        inverter_matches = re.findall(r'Inverter\s*:\s*([^\n]+)', text)
+        if inverter_matches:
+            components_data["inverters"].extend(inverter_matches)
+        
+        # Extract module information
+        module_matches = re.findall(r'Module\s*:\s*([^\n]+)', text)
+        if module_matches:
+            components_data["modules"].extend(module_matches)
+        
+        # Extract string information
+        string_matches = re.findall(r'String\s*:\s*([^\n]+)', text)
+        if string_matches:
+            components_data["strings"].extend(string_matches)
     
-    # Extract module information
-    module_matches = re.findall(r'Module\s*:\s*([^\n]+)', text)
-    if module_matches:
-        components_data["modules"].extend(module_matches)
-    
-    # Extract string information
-    string_matches = re.findall(r'String\s*:\s*([^\n]+)', text)
-    if string_matches:
-        components_data["strings"].extend(string_matches)
-    
-    return json.dumps(components_data)
+    return json.dumps(components_data)  # Convert to string for caching
 
 @lru_cache(maxsize=32)
 def parse_helioscope_data(components_data_str):
-    """Parse Helioscope data from JSON string"""
-    components_data = json.loads(components_data_str)
+    components_data = json.loads(components_data_str)  # Convert back to dict
     parsed_data = {
         "inverter_count": len(components_data["inverters"]),
         "inverter_model": components_data["inverters"][0] if components_data["inverters"] else "",
@@ -69,340 +54,22 @@ def parse_helioscope_data(components_data_str):
     }
     return parsed_data
 
-def save_to_pdf_page1(data, filename="System_Summary.pdf"):
-    """Create PDF for System Summary"""
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter)
-    elements = []
-    
-    # Add title
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=16,
-        spaceAfter=30
-    )
-    elements.append(Paragraph("System Summary", title_style))
-    
-    # Convert data to table format
-    table_data = [["Field", "Value"]]
-    for key, value in data.items():
-        table_data.append([key, str(value)])
-    
-    # Create table
-    table = Table(table_data)
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 12),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
-        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 1), (-1, -1), 10),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
-    elements.append(table)
-    
-    # Build PDF
-    doc.build(elements)
-    buffer.seek(0)
-    return buffer
-
-def save_to_pdf_page2(dataframe, filename="Feed_Schedule.pdf"):
-    """Create PDF for Feed Schedule"""
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter)
-    elements = []
-    
-    # Add title
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=16,
-        spaceAfter=30
-    )
-    elements.append(Paragraph("Feed Schedule", title_style))
-    
-    # Convert DataFrame to table format
-    table_data = [dataframe.columns.tolist()]
-    table_data.extend(dataframe.values.tolist())
-    
-    # Create table
-    table = Table(table_data)
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 12),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
-        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 1), (-1, -1), 10),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
-    elements.append(table)
-    
-    # Build PDF
-    doc.build(elements)
-    buffer.seek(0)
-    return buffer
-
-def save_to_pdf_page3(data, filename="Metco_Equipment.pdf"):
-    """Create PDF for Metco Equipment"""
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter)
-    elements = []
-    
-    # Add title
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=16,
-        spaceAfter=30
-    )
-    elements.append(Paragraph("Metco Equipment", title_style))
-    
-    # Convert data to table format
-    table_data = [["EQUIPMENTS", "MANUFACTURER", "MODEL NUMBER", "FURNISHED BY", "INSTALLED BY"]]
-    table_data.extend(data)
-    
-    # Create table
-    table = Table(table_data)
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 12),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
-        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 1), (-1, -1), 10),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
-    elements.append(table)
-    
-    # Build PDF
-    doc.build(elements)
-    buffer.seek(0)
-    return buffer
-
-def save_to_pdf_page4(df, filename="inverter_schedule.pdf"):
-    """Create PDF for Inverter Schedule"""
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter)
-    elements = []
-    
-    # Add title
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=16,
-        spaceAfter=30
-    )
-    elements.append(Paragraph("Inverter Schedule", title_style))
-    
-    # Convert DataFrame to table format
-    table_data = [df.columns.tolist()]
-    table_data.extend(df.values.tolist())
-    
-    # Create table
-    table = Table(table_data)
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 12),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
-        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 1), (-1, -1), 10),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
-    elements.append(table)
-    
-    # Build PDF
-    doc.build(elements)
-    buffer.seek(0)
-    return buffer
-
-def save_to_pdf_page5(df, filename="stringing_table.pdf"):
-    """Create PDF for String Table"""
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter)
-    elements = []
-    
-    # Add title
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=16,
-        spaceAfter=30
-    )
-    elements.append(Paragraph("String Table", title_style))
-    
-    # Convert DataFrame to table format
-    table_data = [df.columns.tolist()]
-    table_data.extend(df.values.tolist())
-    
-    # Create table
-    table = Table(table_data)
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 12),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
-        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 1), (-1, -1), 10),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
-    elements.append(table)
-    
-    # Build PDF
-    doc.build(elements)
-    buffer.seek(0)
-    return buffer
-
-def save_to_pdf_page6(panel_details, table_data, filename="panel_schedule.pdf"):
-    """Create PDF for Panel Schedule"""
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter)
-    elements = []
-    
-    # Add title
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=16,
-        spaceAfter=30
-    )
-    elements.append(Paragraph("Panel Schedule", title_style))
-    
-    # Add panel details
-    details_data = [["Field", "Value"]]
-    for key, value in panel_details.items():
-        details_data.append([key, str(value)])
-    
-    details_table = Table(details_data)
-    details_table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 12),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
-        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 1), (-1, -1), 10),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
-    elements.append(details_table)
-    elements.append(Spacer(1, 20))
-    
-    # Add table data
-    table = Table(table_data)
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 12),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
-        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 1), (-1, -1), 10),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
-    elements.append(table)
-    
-    # Build PDF
-    doc.build(elements)
-    buffer.seek(0)
-    return buffer
-
-def merge_files(file_list, output_filename="Combined_Report.pdf"):
-    """Merge multiple PDF files into one"""
-    from PyPDF2 import PdfMerger
-    merger = PdfMerger()
-    
-    for pdf in file_list:
-        if pdf and isinstance(pdf, BytesIO):
-            pdf.seek(0)  # Reset the buffer position
-            merger.append(pdf)
-        elif pdf and os.path.exists(pdf):
-            with open(pdf, 'rb') as f:
-                merger.append(f)
-    
-    # Save to BytesIO instead of file
-    output_buffer = BytesIO()
-    merger.write(output_buffer)
-    merger.close()
-    output_buffer.seek(0)
-    return output_buffer
-
 # --- Page 1 Functions ---
 def save_to_pdf_page1(data, filename="System_Summary.pdf"):
-    """Create PDF for System Summary"""
-    buffer = BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter)
-    elements = []
-    
-    # Add title
-    styles = getSampleStyleSheet()
-    title_style = ParagraphStyle(
-        'CustomTitle',
-        parent=styles['Heading1'],
-        fontSize=16,
-        spaceAfter=30
-    )
-    elements.append(Paragraph("System Summary", title_style))
-    
-    # Convert data to table format
-    table_data = [["Field", "Value"]]
-    for key, value in data.items():
-        table_data.append([key, str(value)])
-    
-    # Create table
-    table = Table(table_data)
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 12),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
-        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
-        ('FONTSIZE', (0, 1), (-1, -1), 10),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black)
-    ]))
-    elements.append(table)
-    
-    # Build PDF
-    doc.build(elements)
-    buffer.seek(0)
-    return buffer
+    pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.add_page()
+    pdf.set_font("Arial", style="B", size=14)
+    pdf.cell(200, 10, "System Summary", ln=True, align="C")
+    pdf.ln(10)
+    pdf.set_font("Arial", size=12)
+    for label, value in data.items():
+        pdf.set_font("Arial", style="B", size=8)
+        pdf.cell(60, 10, label, border=1)
+        pdf.set_font("Arial", size=8)
+        pdf.cell(130, 10, value, border=1, ln=True)
+    pdf.output(filename)
+    return filename
 
 # --- Page 2 Functions ---
 def generate_pdf_page2(dataframe, filename="Feed_Schedule.pdf"):
@@ -502,12 +169,40 @@ def fill_table_page5(data, num_inverters, best_panels_per_string, remainder, no_
     return data
 
 def create_pdf_page5(df):
-    """Create Excel for String Table"""
     buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-        df.to_excel(writer, sheet_name='String Table', index=False)
-        worksheet = writer.sheets['String Table']
-        worksheet.set_column('A:Z', 15)
+    doc = SimpleDocTemplate(buffer, pagesize=landscape(letter))
+    elements = []
+
+    headers = [f"{col[0]}\n{col[1]}\n{col[2]}" if col[1] else col[0] for col in df.columns]
+    data_list = [headers] + df.values.tolist()
+
+    # Dynamic font size and column width adjustment
+    col_count = len(headers)
+    row_count = len(data_list)
+    max_column_width = 600 // col_count
+    column_widths = [max(40, max_column_width)] * col_count  # Ensure columns are not too narrow
+
+    # Adjust font size based on row count to fit the table better
+    font_size = 6 if row_count > 30 else 7  # If there are too many rows, reduce font size
+    header_font_size = 5  # Smaller font size for headers
+
+    table = Table(data_list, colWidths=column_widths)
+    table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, 0), header_font_size),  # Smaller font size for headers
+        ("FONTSIZE", (0, 1), (-1, -1), font_size),  # Adjusted font size for table content
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 5),
+        ("BACKGROUND", (0, 1), (-1, -1), colors.beige),
+        ("GRID", (0, 0), (-1, -1), 1, colors.black),
+        ("WORDWRAP", (0, 0), (-1, -1)),
+    ]))
+
+    elements.append(table)
+    doc.build(elements)
+    
     buffer.seek(0)
     return buffer
 
@@ -552,15 +247,18 @@ def generate_pdf_page6(panel_details, table_data):
     return pdf_output
 
 # --- Common Functions ---
-def merge_pdfs(pdf_list, output_filename="Combined_Report.xlsx"):
-    """Merge multiple Excel files into one"""
-    with pd.ExcelWriter(output_filename, engine='xlsxwriter') as writer:
+def merge_pdfs(pdf_list, output_filename="Combined_Report.pdf"):
+    merger = PdfMerger()
+    try:
         for pdf in pdf_list:
             if pdf and os.path.exists(pdf):
-                df = pd.read_excel(pdf)
-                sheet_name = os.path.splitext(os.path.basename(pdf))[0]
-                df.to_excel(writer, sheet_name=sheet_name, index=False)
-    return output_filename
+                merger.append(pdf)
+        merger.write(output_filename)
+        merger.close()
+        return output_filename
+    except Exception as e:
+        st.error(f"Error merging PDFs: {str(e)}")
+        return None
 
 # --- Streamlit Application ---
 st.set_page_config(page_title="Solar System Design & Schedule", layout="wide")
@@ -708,7 +406,7 @@ elif st.session_state.current_section == "Design Report":
                             "3#4,#10N,#10G-1 1/4\"C"
                         ]
                         feed_df = pd.DataFrame({"TAG": list(map(str, tags)), "DESCRIPTION": descriptions})
-                        save_to_pdf_page2(feed_df)
+                        generate_pdf_page2(feed_df)
                         st.session_state.pdf_cache["Feed_Schedule.pdf"] = True
                         st.success("✅ Feed Schedule PDF generated")
                         
@@ -720,7 +418,7 @@ elif st.session_state.current_section == "Design Report":
                             ["RAPID SHUTDOWN DEVICES", "RSD Device", "Model A", "METCO", "Elec. Sub."],
                             ["ENERGY METERING", "Standard Meter", "Model B", "METCO", "Elec. Sub."]
                         ]
-                        save_to_pdf_page3(equipment_data)
+                        generate_equipment_pdf_page3(equipment_data)
                         st.session_state.pdf_cache["Metco_Equipment.pdf"] = True
                         st.success("✅ Metco Equipment PDF generated")
                         
@@ -747,7 +445,7 @@ elif st.session_state.current_section == "Design Report":
                             "DC DISCONNECT\nAMPERAGE", "DC DISCONNECT\nNEMA RATING",
                             "AC DISCONNECT\nAMPERAGE", "AC DISCONNECT\nNEMA RATING", "REMARKS"
                         ])
-                        save_to_pdf_page4(inverter_df)
+                        generate_pdf_page4(inverter_df)
                         st.session_state.pdf_cache["inverter_schedule.pdf"] = True
                         st.success("✅ Inverter Schedule PDF generated")
                         
@@ -847,7 +545,7 @@ elif st.session_state.current_section == "Design Report":
                                 })
                         
                         panel_df = pd.DataFrame(inverter_rows)
-                        save_to_pdf_page6(panel_details, panel_df)
+                        generate_pdf_page6(panel_details, panel_df)
                         st.session_state.pdf_cache["panel_schedule.pdf"] = True
                         st.success("✅ Panel Schedule PDF generated")
                         
@@ -869,16 +567,17 @@ elif st.session_state.current_section == "Design Report":
                             st.warning("Please ensure all PDFs are generated before creating the combined report.")
                         else:
                             try:
-                                combined_pdf = merge_files(required_pdfs)
-                                if combined_pdf:
+                                combined_pdf = merge_pdfs(required_pdfs)
+                                if combined_pdf and os.path.exists(combined_pdf):
                                     st.success("✅ Complete system report generated successfully!")
-                                    st.download_button(
-                                        "📥 Download Complete System Report",
-                                        data=combined_pdf.getvalue(),
-                                        file_name="Solar_System_Report.pdf",
-                                        mime="application/pdf",
-                                        key="download_complete"
-                                    )
+                                    with open(combined_pdf, "rb") as file:
+                                        st.download_button(
+                                            "📥 Download Complete System Report",
+                                            data=file.read(),
+                                            file_name="Solar_System_Report.pdf",
+                                            mime="application/pdf",
+                                            key="download_complete"
+                                        )
                             except Exception as e:
                                 st.error(f"Error creating combined PDF: {str(e)}")
                                 st.warning("Please try generating the report again.")
@@ -938,21 +637,16 @@ elif st.session_state.current_section == "System Schedule":
                 "SOLAR PV MODULE (PRODUCT NAME)": solar_pv_module,
                 "NO OF SOLAR PV MODULES": no_of_solar_pv_modules,
             }
-            # Convert data to DataFrame
-            df = pd.DataFrame([data])
-            df = df.T.reset_index()
-            df.columns = ['Field', 'Value']
-            
-            # Save to PDF
-            pdf_buffer = save_to_pdf_page1(data)
-            st.session_state["pdf_data_page1"] = pdf_buffer.getvalue()
-            st.success("PDF generated successfully!")
-            st.download_button(
-                "📄 Download System Summary PDF",
-                data=st.session_state["pdf_data_page1"],
-                file_name="System_Summary.pdf",
-                mime="application/pdf"
-            )
+            pdf_file = save_to_pdf_page1(data)
+            with open(pdf_file, "rb") as file:
+                st.session_state["pdf_data_page1"] = file.read()
+                st.success("PDF generated successfully!")
+                st.download_button(
+                    "📄 Download System Summary PDF",
+                    data=st.session_state["pdf_data_page1"],
+                    file_name="System_Summary.pdf",
+                    mime="application/pdf"
+                )
     
     elif st.session_state.current_page == "Feed Schedule":
         st.title("Feed Schedule - 600V MAX")
@@ -978,7 +672,7 @@ elif st.session_state.current_section == "System Schedule":
         st.dataframe(df)
 
         if st.button("Generate Feed Schedule PDF"):
-            pdf_file = save_to_pdf_page2(df)
+            pdf_file = generate_pdf_page2(df)
             with open(pdf_file, "rb") as file:
                 st.session_state["pdf_data_page2"] = file.read()
                 st.success("PDF generated successfully!")
@@ -1017,7 +711,7 @@ elif st.session_state.current_section == "System Schedule":
             submitted = st.form_submit_button("Generate PDF")
         
         if submitted:
-            pdf_file = save_to_pdf_page3(data)
+            pdf_file = generate_equipment_pdf_page3(data)
             with open(pdf_file, "rb") as file:
                 st.session_state["pdf_page3"] = file.read()
                 st.success("PDF generated successfully!")
@@ -1072,7 +766,7 @@ elif st.session_state.current_section == "System Schedule":
         st.dataframe(df)
 
         if st.button("Generate PDF"):
-            pdf_file = save_to_pdf_page4(df)
+            pdf_file = generate_pdf_page4(df)
             with open(pdf_file, "rb") as file:
                 st.session_state["pdf_page4"] = file.read()
                 st.success("PDF generated successfully!")
@@ -1137,7 +831,7 @@ elif st.session_state.current_section == "System Schedule":
                 st.session_state.string_table_data = data
                 
                 if st.button("Generate PDF"):
-                    pdf_buffer = save_to_pdf_page5(df)
+                    pdf_buffer = create_pdf_page5(df)
                     with open("stringing_table.pdf", "wb") as f:
                         f.write(pdf_buffer.getvalue())
                     st.success("PDF generated successfully!")
@@ -1230,7 +924,7 @@ elif st.session_state.current_section == "System Schedule":
                 "PH": ph,
                 "Wire": wire
             }
-            pdf_file = save_to_pdf_page6(panel_details, edited_df)
+            pdf_file = generate_pdf_page6(panel_details, edited_df)
             with open(pdf_file, "rb") as f:
                 st.success("PDF generated successfully!")
                 st.download_button(
@@ -1265,24 +959,16 @@ elif st.session_state.current_section == "System Schedule":
             st.markdown("### Actions")
             if all(os.path.exists(pdf) for pdf in required_pdfs):
                 try:
-                    # Get all PDF buffers
-                    pdf_buffers = []
-                    for pdf in required_pdfs:
-                        with open(pdf, 'rb') as f:
-                            buffer = BytesIO(f.read())
-                            pdf_buffers.append(buffer)
-                    
-                    # Merge PDFs
-                    combined_pdf = merge_files(pdf_buffers)
-                    
-                    if combined_pdf:
-                        st.download_button(
-                            "📥 Download Complete System Report",
-                            data=combined_pdf.getvalue(),
-                            file_name="Solar_System_Report.pdf",
-                            mime="application/pdf",
-                            key="download_complete"
-                        )
+                    combined_pdf = merge_pdfs(required_pdfs)
+                    if combined_pdf and os.path.exists(combined_pdf):
+                        with open(combined_pdf, "rb") as file:
+                            st.download_button(
+                                "📥 Download Complete System Report",
+                                data=file.read(),
+                                file_name="Solar_System_Report.pdf",
+                                mime="application/pdf",
+                                key="download_complete"
+                            )
                 except Exception as e:
                     st.error(f"Error creating combined PDF: {str(e)}")
                     st.warning("Please try generating the report again.")
