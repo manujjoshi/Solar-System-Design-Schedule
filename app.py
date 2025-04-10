@@ -19,6 +19,7 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
 from reportlab.lib import colors
 import json
 from functools import lru_cache
+import base64
 
 # Cache PDF parsing functions with string conversion
 @lru_cache(maxsize=32)
@@ -256,18 +257,14 @@ def generate_pdf_page6(panel_details, table_data):
     return pdf_output
 
 # --- Common Functions ---
-def merge_pdfs(pdf_list, output_filename="Combined_Report.pdf"):
-    merger = PdfMerger()
-    try:
+def merge_pdfs(pdf_list, output_filename="Combined_Report.xlsx"):
+    with pd.ExcelWriter(output_filename, engine='xlsxwriter') as writer:
         for pdf in pdf_list:
             if pdf and os.path.exists(pdf):
-                merger.append(pdf)
-        merger.write(output_filename)
-        merger.close()
-        return output_filename
-    except Exception as e:
-        st.error(f"Error merging PDFs: {str(e)}")
-        return None
+                df = pd.read_excel(pdf)
+                sheet_name = os.path.splitext(os.path.basename(pdf))[0]
+                df.to_excel(writer, sheet_name=sheet_name, index=False)
+    return output_filename
 
 # --- Streamlit Application ---
 st.set_page_config(page_title="Solar System Design & Schedule", layout="wide")
@@ -583,8 +580,8 @@ elif st.session_state.current_section == "Design Report":
                                         st.download_button(
                                             "📥 Download Complete System Report",
                                             data=file.read(),
-                                            file_name="Solar_System_Report.pdf",
-                                            mime="application/pdf",
+                                            file_name="Solar_System_Report.xlsx",
+                                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                             key="download_complete"
                                         )
                             except Exception as e:
@@ -974,8 +971,8 @@ elif st.session_state.current_section == "System Schedule":
                             st.download_button(
                                 "📥 Download Complete System Report",
                                 data=file.read(),
-                                file_name="Solar_System_Report.pdf",
-                                mime="application/pdf",
+                                file_name="Solar_System_Report.xlsx",
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                 key="download_complete"
                             )
                 except Exception as e:
