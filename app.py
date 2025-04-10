@@ -1,15 +1,24 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import inch
+import io
+import PyPDF2
+import re
+import os
+from datetime import datetime
 from fpdf import FPDF
 from PyPDF2 import PdfMerger, PdfReader
 from io import BytesIO
 from reportlab.lib.pagesizes import landscape, letter
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
 from reportlab.lib import colors
-import os
-import re
-from functools import lru_cache
 import json
+from functools import lru_cache
 
 # Cache PDF parsing functions with string conversion
 @lru_cache(maxsize=32)
