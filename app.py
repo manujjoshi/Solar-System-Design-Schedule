@@ -8,223 +8,215 @@ import base64
 from io import BytesIO
 import json
 from functools import lru_cache
+from fpdf import FPDF
+import re
+import fitz  # PyMuPDF
+from PyPDF2 import PdfMerger, PdfReader
+from reportlab.lib.pagesizes import landscape, letter
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle
+from reportlab.lib import colors
 
-# Cache PDF parsing functions with string conversion
-@lru_cache(maxsize=32)
-def extract_components_from_pdf(pdf_content):
-    reader = PdfReader(BytesIO(pdf_content))
-    components_data = {
-        "inverters": [],
-        "modules": [],
-        "strings": []
-    }
-    
-    for page in reader.pages:
-        text = page.extract_text()
-        
-        # Extract inverter information
-        inverter_matches = re.findall(r'Inverter\s*:\s*([^\n]+)', text)
-        if inverter_matches:
-            components_data["inverters"].extend(inverter_matches)
-        
-        # Extract module information
-        module_matches = re.findall(r'Module\s*:\s*([^\n]+)', text)
-        if module_matches:
-            components_data["modules"].extend(module_matches)
-        
-        # Extract string information
-        string_matches = re.findall(r'String\s*:\s*([^\n]+)', text)
-        if string_matches:
-            components_data["strings"].extend(string_matches)
-    
-    return json.dumps(components_data)  # Convert to string for caching
-
-@lru_cache(maxsize=32)
-def parse_helioscope_data(components_data_str):
-    components_data = json.loads(components_data_str)  # Convert back to dict
-    parsed_data = {
-        "inverter_count": len(components_data["inverters"]),
-        "inverter_model": components_data["inverters"][0] if components_data["inverters"] else "",
-        "module_count": len(components_data["modules"]),
-        "module_model": components_data["modules"][0] if components_data["modules"] else "",
-        "string_count": len(components_data["strings"]),
-        "string_config": components_data["strings"][0] if components_data["strings"] else ""
-    }
-    return parsed_data
-
-def save_to_pdf_page1(data, filename="System_Summary.csv"):
-    """Create CSV for System Summary"""
-    # Convert data to DataFrame
-    df = pd.DataFrame([data])
-    df = df.T.reset_index()
-    df.columns = ['Field', 'Value']
-    
-    # Save to CSV
-    buffer = BytesIO()
-    df.to_csv(buffer, index=False)
-    buffer.seek(0)
-    return buffer
-
-def save_to_pdf_page2(dataframe, filename="Feed_Schedule.csv"):
-    """Create CSV for Feed Schedule"""
-    buffer = BytesIO()
-    dataframe.to_csv(buffer, index=False)
-    buffer.seek(0)
-    return buffer
-
-def save_to_pdf_page3(data, filename="Metco_Equipment.csv"):
-    """Create CSV for Metco Equipment"""
-    df = pd.DataFrame(data, columns=["EQUIPMENTS", "MANUFACTURER", "MODEL NUMBER", "FURNISHED BY", "INSTALLED BY"])
-    buffer = BytesIO()
-    df.to_csv(buffer, index=False)
-    buffer.seek(0)
-    return buffer
-
-def save_to_pdf_page4(df, filename="inverter_schedule.csv"):
-    """Create CSV for Inverter Schedule"""
-    buffer = BytesIO()
-    df.to_csv(buffer, index=False)
-    buffer.seek(0)
-    return buffer
-
-def save_to_pdf_page5(df, filename="stringing_table.csv"):
-    """Create CSV for String Table"""
-    buffer = BytesIO()
-    df.to_csv(buffer, index=False)
-    buffer.seek(0)
-    return buffer
-
-def save_to_pdf_page6(panel_details, table_data, filename="panel_schedule.csv"):
-    """Create CSV for Panel Schedule"""
-    # Combine panel details and table data
-    panel_df = pd.DataFrame([panel_details])
-    table_df = pd.DataFrame(table_data)
-    buffer = BytesIO()
-    panel_df.to_csv(buffer, index=False)
-    table_df.to_csv(buffer, mode='a', index=False)
-    buffer.seek(0)
-    return buffer
-
-def merge_files(file_list, output_filename="Combined_Report.csv"):
-    """Merge multiple CSV files into one"""
-    with open(output_filename, 'w') as outfile:
-        for i, file in enumerate(file_list):
-            if file and os.path.exists(file):
-                with open(file, 'r') as infile:
-                    if i > 0:  # Skip header for all but first file
-                        next(infile)
-                    outfile.write(infile.read())
-    return output_filename
-
-# --- Page 1 Functions ---
-def save_to_pdf_page1(data, filename="System_Summary.xlsx"):
-    """Create Excel for System Summary"""
-    buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-        # Convert data to DataFrame
-        df = pd.DataFrame([data])
-        df = df.T.reset_index()
-        df.columns = ['Field', 'Value']
-        
-        # Write to Excel
-        df.to_excel(writer, sheet_name='System Summary', index=False)
-        
-        # Get the worksheet
-        worksheet = writer.sheets['System Summary']
-        
-        # Set column widths
-        worksheet.set_column('A:A', 40)  # Field column
-        worksheet.set_column('B:B', 60)  # Value column
-        
-        # Add header formatting
-        header_format = writer.book.add_format({
-            'bold': True,
-            'bg_color': '#D9D9D9',
-            'border': 1
-        })
-        
-        # Apply header formatting
-        for col_num, value in enumerate(df.columns.values):
-            worksheet.write(0, col_num, value, header_format)
-    
-    buffer.seek(0)
-    return buffer
-
-# --- Page 2 Functions ---
-def generate_pdf_page2(dataframe, filename="Feed_Schedule.pdf"):
+def save_to_pdf_page1(data):
+    """Generate System Summary PDF"""
     pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=8)
     pdf.add_page()
-    pdf.set_font("Arial", "B", 12)
-    pdf.cell(200, 10, "Feed Schedule - 600V MAX", ln=True, align="C")
-    pdf.set_font("Arial", "B", 8)
-    pdf.cell(40, 10, "TAG", border=1, align="C")
-    pdf.cell(140, 10, "DESCRIPTION", border=1, align="C")
-    pdf.ln()
-    pdf.set_font("Arial", "", 8)
-    for _, row in dataframe.iterrows():
-        pdf.cell(40, 5, row["TAG"], border=1, align="C")
-        pdf.cell(140, 5, row["DESCRIPTION"], border=1, align="L")
-        pdf.ln()
-    pdf.output(filename)
-    return filename
-
-# --- Page 3 Functions ---
-def generate_equipment_pdf_page3(data, filename="Metco_Equipment.pdf"):
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=12)
-    pdf.add_page()
-    pdf.set_font("Arial", style="B", size=14)
-    pdf.cell(200, 10, "METCO Provided Equipments", ln=True, align='C')
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, "System Summary", ln=True, align="C")
     pdf.ln(10)
-    pdf.set_font("Arial", size=6)
-    pdf.set_font("Arial", style="B", size=10)
-    columns = ["EQUIPMENTS", "MANUFACTURER", "MODEL NUMBER", "FURNISHED BY", "INSTALLED BY"]
-    for col in columns:
-        pdf.cell(38, 5, col, border=1, align='C')
-    pdf.ln()
-    pdf.set_font("Arial", style="", size=6)
-    for row in data:
-        for item in row:
-            pdf.cell(38, 5, str(item), border=1, align='C')
-        pdf.ln()
-    pdf.output(filename)
-    return filename
+    
+    pdf.set_font("Arial", "", 12)
+    for key, value in data.items():
+        pdf.cell(60, 10, key, 1)
+        pdf.cell(0, 10, str(value), 1, ln=True)
+    
+    output_path = "System_Summary.pdf"
+    pdf.output(output_path)
+    return output_path
 
-# --- Page 4 Functions ---
-def create_default_values_page4(n, manufacturer_model, phase, volts, fla, kw, mocp, mocs, dcda, dcdnr, acda, acdnr, remarks):
-    return [["INV", i + 1, "Inverter", manufacturer_model, phase, volts, fla, kw, 1, mocp,
-             mocs, "20'", "0.08%", dcda, dcdnr, acda, acdnr, remarks]
-            for i in range(n)]
-
-def generate_pdf_page4(df, pdf_path="inverter_schedule.pdf"):
-    pdf = FPDF(orientation='L', unit='mm', format=(800, 420))
-    pdf.set_auto_page_break(auto=True, margin=10)
+def generate_pdf_page2(df):
+    """Generate Feed Schedule PDF"""
+    pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", size=10)
-    col_widths = [20, 10, 30, 60, 15, 15, 15, 15, 15, 15, 40, 20, 20, 20, 20, 20, 20, 30]
-    pdf.set_fill_color(200, 200, 200)
-    pdf.set_text_color(0, 0, 0)
-    pdf.set_font("Arial", style="B", size=10)
-    header_height = 25
-    row_height = 10
-    columns = df.columns.tolist()
-    for col, width in zip(columns, col_widths):
-        x_pos = pdf.get_x()
-        y_pos = pdf.get_y()
-        pdf.multi_cell(width, header_height / 5, col, border=1, align="C", fill=True)
-        pdf.set_xy(x_pos + width, y_pos)
-    pdf.ln(header_height)
-    pdf.set_font("Arial", size=10)
-    for _, row in df.iterrows():
-        for item, width in zip(row, col_widths):
-            pdf.cell(width, row_height, str(item), border=1, align="C", fill=False)
-        pdf.ln()
-    pdf.output(pdf_path)
-    return pdf_path
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, "Feed Schedule - 600V MAX", ln=True, align="C")
+    pdf.ln(10)
+    
+    pdf.set_font("Arial", "", 12)
+    col_widths = [30, 160]
+    for index, row in df.iterrows():
+        pdf.cell(col_widths[0], 10, str(row["TAG"]), 1)
+        pdf.cell(col_widths[1], 10, str(row["DESCRIPTION"]), 1, ln=True)
+    
+    output_path = "Feed_Schedule.pdf"
+    pdf.output(output_path)
+    return output_path
 
-# --- Page 5 Functions ---
-def fill_table_page5(data, num_inverters, best_panels_per_string, remainder, no_of_col_to_be_filled, total_strings, no_of_mppt):
+def generate_equipment_pdf_page3(data):
+    """Generate Metco Equipment PDF"""
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, "METCO Provided Equipment", ln=True, align="C")
+    pdf.ln(10)
+    
+    pdf.set_font("Arial", "", 12)
+    col_widths = [60, 40, 40, 30, 30]
+    headers = ["Equipment", "Manufacturer", "Model Number", "Furnished By", "Installed By"]
+    
+    # Add headers
+    for i, header in enumerate(headers):
+        pdf.cell(col_widths[i], 10, header, 1)
+    pdf.ln()
+    
+    # Add data
+    for row in data:
+        for i, value in enumerate(row):
+            pdf.cell(col_widths[i], 10, str(value), 1)
+        pdf.ln()
+    
+    output_path = "Metco_Equipment.pdf"
+    pdf.output(output_path)
+    return output_path
+
+def generate_pdf_page4(df):
+    """Generate Inverter Schedule PDF"""
+    pdf = FPDF(orientation='L')
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, "Inverter Schedule", ln=True, align="C")
+    pdf.ln(10)
+    
+    pdf.set_font("Arial", "", 8)
+    col_widths = [15, 10, 30, 40, 15, 15, 15, 15, 15, 15, 30, 20, 20, 20, 20, 20, 20, 20]
+    
+    # Add headers
+    for i, col in enumerate(df.columns):
+        pdf.cell(col_widths[i], 10, str(col), 1)
+    pdf.ln()
+    
+    # Add data
+    for _, row in df.iterrows():
+        for i, value in enumerate(row):
+            pdf.cell(col_widths[i], 10, str(value), 1)
+        pdf.ln()
+    
+    output_path = "inverter_schedule.pdf"
+    pdf.output(output_path)
+    return output_path
+
+def create_pdf_page5(df):
+    """Generate String Table PDF"""
+    pdf = FPDF(orientation='L')
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, "String Table", ln=True, align="C")
+    pdf.ln(10)
+    
+    # Set up column widths
+    col_widths = [20, 15] + [25] * (len(df.columns) - 2)
+    
+    # Add headers
+    pdf.set_font("Arial", "B", 8)
+    for i, col in enumerate(df.columns):
+        if isinstance(col, tuple):
+            header = "\n".join(str(x) for x in col if x)
+        else:
+            header = str(col)
+        pdf.cell(col_widths[i], 10, header, 1)
+    pdf.ln()
+    
+    # Add data
+    pdf.set_font("Arial", "", 8)
+    for _, row in df.iterrows():
+        for i, value in enumerate(row):
+            pdf.cell(col_widths[i], 10, str(value), 1)
+        pdf.ln()
+    
+    # Save to file
+    output_path = "stringing_table.pdf"
+    pdf.output(output_path)
+    return output_path
+
+def generate_pdf_page6(panel_details, df):
+    """Generate Panel Schedule PDF"""
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, "Panel Schedule", ln=True, align="C")
+    pdf.ln(10)
+    
+    # Add panel details
+    pdf.set_font("Arial", "", 12)
+    for key, value in panel_details.items():
+        pdf.cell(60, 10, key, 1)
+        pdf.cell(0, 10, str(value), 1, ln=True)
+    pdf.ln(10)
+    
+    # Add table headers
+    col_widths = [60, 30, 30, 30, 30]
+    headers = ["Circuit Description", "Load VA", "CKT BKR", "Phase", "Circuit #"]
+    for i, header in enumerate(headers):
+        pdf.cell(col_widths[i], 10, header, 1)
+    pdf.ln()
+    
+    # Add table data
+    for _, row in df.iterrows():
+        for i, col in enumerate(headers):
+            pdf.cell(col_widths[i], 10, str(row[col]), 1)
+        pdf.ln()
+    
+    output_path = "panel_schedule.pdf"
+    pdf.output(output_path)
+    return output_path
+
+def merge_pdfs(pdf_files):
+    """Merge multiple PDFs into a single file"""
+    merger = PdfMerger()
+    for pdf in pdf_files:
+        merger.append(pdf)
+    output_path = "Solar_System_Report.pdf"
+    merger.write(output_path)
+    merger.close()
+    return output_path
+
+def create_default_values_page4(num_rows, manufacturer_model, phase, volts, fla, kw, mocp, mocs, dcda, dcdnr, acda, acdnr, remarks):
+    """Create default values for inverter schedule"""
+    data = []
+    for i in range(num_rows):
+        row = [
+            f"INV{i+1}",  # TAG
+            str(i+1),     # #
+            f"Inverter {i+1}",  # DESCRIPTION
+            manufacturer_model,  # MANUFACTURER AND MODEL
+            str(phase),   # PHASE
+            str(volts),   # VOLTS
+            str(fla),     # FLA
+            str(kw),      # Kw
+            "",           # FED TO
+            str(mocp),    # MOCP
+            mocs,         # MINIMUM CONDUIT AND CABLE SIZE
+            "",           # APPROXIMATE LENGTH OF RUN
+            "",           # VOLTAGE DROP INVERTER TO POI
+            dcda,         # DC DISCONNECT AMPERAGE
+            dcdnr,        # DC DISCONNECT NEMA RATING
+            acda,         # AC DISCONNECT AMPERAGE
+            acdnr,        # AC DISCONNECT NEMA RATING
+            remarks       # REMARKS
+        ]
+        data.append(row)
+    return data
+
+def create_default_values_page5(num_inverters, num_panels, no_of_mppt, no_of_string):
+    """Create default values for string table"""
+    data = []
+    total_strings = no_of_mppt * no_of_string
+    for i in range(num_inverters):
+        row = ["INV", str(i+1)] + ["-"] * total_strings
+        data.append(row)
+    return data
+
+def fill_table_page5(data, num_inverters, best_panels_per_string, remainder, no_of_col_to_be_filled, total_strings, no_of_mppt, num_panels):
+    """Fill the string table with panel counts"""
     count = 0
     step = 5
     index_order = []
@@ -247,71 +239,15 @@ def fill_table_page5(data, num_inverters, best_panels_per_string, remainder, no_
                         return data
     return data
 
-def create_pdf_page5(df):
-    """Create Excel for String Table"""
-    buffer = BytesIO()
-    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-        df.to_excel(writer, sheet_name='String Table', index=False)
-        worksheet = writer.sheets['String Table']
-        worksheet.set_column('A:Z', 15)
-    buffer.seek(0)
-    return buffer
+# Set page config
+st.set_page_config(
+    page_title="Solar System Design & Schedule",
+    page_icon="☀️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# --- Page 6 Functions ---
-def generate_pdf_page6(panel_details, table_data):
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.add_page()
-    pdf.set_font("Arial", style='B', size=16)
-    pdf.cell(200, 10, "New Panel Schedule", ln=True, align='C')
-    pdf.ln(5)
-    pdf.set_font("Arial", size=10)
-    pdf.set_fill_color(200, 220, 255)
-    def row(label1, value1, label2, value2, label3, value3):
-        pdf.cell(30, 8, label1, 1, 0, 'L', 1)
-        pdf.cell(40, 8, str(value1), 1, 0, 'L')
-        pdf.cell(30, 8, label2, 1, 0, 'L', 1)
-        pdf.cell(40, 8, str(value2), 1, 0, 'L')
-        pdf.cell(30, 8, label3, 1, 0, 'L', 1)
-        pdf.cell(20, 8, str(value3), 1, 1, 'L')
-    row("Panel", panel_details["Panel"], "Location", panel_details["Location"], "AMP MAIN BKR", panel_details["AMP MAIN BKR"])
-    row("Mount", panel_details["Mount"], "Fed From", panel_details["Fed From"], "AMP MAIN BKR", panel_details["AMP MAIN BKR"])
-    row("Volts", panel_details["Volts"], "PH", panel_details["PH"], "Wire", panel_details["Wire"])
-    pdf.ln(10)
-    pdf.set_font("Arial", style='B', size=11)
-    pdf.cell(60, 8, "Circuit Description", 1)
-    pdf.cell(30, 8, "Load VA", 1)
-    pdf.cell(30, 8, "CKT BKR", 1)
-    pdf.cell(30, 8, "Phase", 1)
-    pdf.cell(30, 8, "Circuit #", 1)
-    pdf.ln()
-    pdf.set_font("Arial", size=10)
-    for _, row_data in table_data.iterrows():
-        pdf.cell(60, 8, str(row_data["Circuit Description"]), 1)
-        pdf.cell(30, 8, str(row_data["Load VA"]), 1)
-        pdf.cell(30, 8, str(row_data["CKT BKR"]), 1)
-        pdf.cell(30, 8, str(row_data["Phase"]), 1)
-        pdf.cell(30, 8, str(row_data["Circuit #"]), 1)
-        pdf.ln()
-    pdf_output = "panel_schedule.pdf"
-    pdf.output(pdf_output)
-    return pdf_output
-
-# --- Common Functions ---
-def merge_pdfs(pdf_list, output_filename="Combined_Report.xlsx"):
-    """Merge multiple Excel files into one"""
-    with pd.ExcelWriter(output_filename, engine='xlsxwriter') as writer:
-        for pdf in pdf_list:
-            if pdf and os.path.exists(pdf):
-                df = pd.read_excel(pdf)
-                sheet_name = os.path.splitext(os.path.basename(pdf))[0]
-                df.to_excel(writer, sheet_name=sheet_name, index=False)
-    return output_filename
-
-# --- Streamlit Application ---
-st.set_page_config(page_title="Solar System Design & Schedule", layout="wide")
-
-# Custom CSS for styling
+# Custom CSS
 st.markdown("""
     <style>
     .main-section {
@@ -356,7 +292,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# Initialize session state with optimized structure
+# Initialize session state variables
 if 'current_section' not in st.session_state:
     st.session_state.current_section = None
 if 'current_page' not in st.session_state:
@@ -367,277 +303,273 @@ if 'auto_populated' not in st.session_state:
     st.session_state.auto_populated = False
 if 'pdf_cache' not in st.session_state:
     st.session_state.pdf_cache = {}
+if 'system_summary_data' not in st.session_state:
+    st.session_state.system_summary_data = {
+        "DC SYSTEM SIZE": "",
+        "AC SYSTEM SIZE": "",
+        "INVERTER (PRODUCT NAME)": "",
+        "NO OF INVERTERS": "",
+        "SOLAR PV MODULE (PRODUCT NAME)": "",
+        "NO OF SOLAR PV MODULES": "",
+        "RACKING (PRODUCT NAME)": "",
+        "NO OF RACKINGS": ""
+    }
 
-# Function to reset session state
-def reset_session_state():
-    st.session_state.current_section = None
-    st.session_state.current_page = None
-    st.session_state.pdf_cache = {}
-    st.rerun()
+def extract_helioscope_data(pdf_content):
+    """Extract data from Helioscope report using the extraction logic from app_3_report_extractor.py"""
+    try:
+        # Convert PDF content to text
+        doc = fitz.open(stream=pdf_content, filetype="pdf")
+        text = "\n".join([page.get_text() for page in doc])
+        
+        # Extract data using the enhanced extraction logic
+        data = {}
+        
+        # Project Info
+        project_name = re.search(r"Project Name\s+(.*)", text)
+        address = re.search(r"Project\s+Address\s+(.*?)\s+USA", text, re.DOTALL)
+        if project_name: data["PROJECT NAME"] = project_name.group(1).strip()
+        if address: data["PROJECT ADDRESS"] = address.group(1).replace('\n', ', ').strip()
+        
+        # Production Info
+        production = re.search(r"Annual\s+Production\s+([\d.]+)\s+MWh", text)
+        ratio = re.search(r"Performance\s+Ratio\s+([\d.]+)%", text)
+        if production: data["ANNUAL PRODUCTION"] = f"{production.group(1)} MWh"
+        if ratio: data["PERFORMANCE RATIO"] = f"{ratio.group(1)}%"
+        
+        # Weather Dataset
+        weather = re.search(r"Weather Dataset\s+(.+?)\s+Simulator Version", text, re.DOTALL)
+        if weather: data["WEATHER DATASET"] = weather.group(1).replace("\n", " ").strip()
+        
+        # Extract components information
+        components = []
+        component_block = re.findall(
+            r"(Inverters|Strings[^\n]*?|Module)\s+([A-Za-z0-9\-/,().\s]+?)\s+(\d+)\s+\(([\d.,]+)\s*(kW|ft)\)",
+            text
+        )
+        
+        for comp in component_block:
+            components.append({
+                "Component": comp[0].strip(),
+                "Description": comp[1].strip(),
+                "Count": comp[2].strip(),
+                "Value": comp[3].strip(),
+                "Unit": comp[4].strip()
+            })
+        
+        # Extract system losses
+        system_losses = []
+        losses_pattern = r"([A-Za-z\s]+)\s+([\d.]+)%"
+        losses_matches = re.findall(losses_pattern, text)
+        for loss_type, loss_value in losses_matches:
+            if "loss" in loss_type.lower() or "degradation" in loss_type.lower():
+                system_losses.append({
+                    "Loss Type": loss_type.strip(),
+                    "Loss (%)": f"{loss_value}%"
+                })
+        data["SYSTEM LOSSES"] = system_losses
+        
+        # Store component details for auto-population
+        st.session_state.component_details = {
+            "inverter": next((c for c in components if "inverter" in c["Component"].lower()), None),
+            "strings": next((c for c in components if "string" in c["Component"].lower()), None),
+            "module": next((c for c in components if "module" in c["Component"].lower()), None)
+        }
+        
+        # Store system summary data
+        if st.session_state.component_details["module"]:
+            st.session_state.system_summary_data = {
+                "DC SYSTEM SIZE": f"{st.session_state.component_details['module']['Value']} kW",
+                "AC SYSTEM SIZE": f"{st.session_state.component_details['inverter']['Value']} kW",
+                "INVERTER (PRODUCT NAME)": st.session_state.component_details['inverter']['Description'],
+                "NO OF INVERTERS": st.session_state.component_details['inverter']['Count'],
+                "SOLAR PV MODULE (PRODUCT NAME)": st.session_state.component_details['module']['Description'],
+                "NO OF SOLAR PV MODULES": st.session_state.component_details['module']['Count'],
+                "RACKING (PRODUCT NAME)": "",
+                "NO OF RACKINGS": ""
+            }
+        
+        # Store inverter schedule data
+        if st.session_state.component_details["inverter"]:
+            st.session_state.inverter_schedule_data = {
+                "num_rows": int(st.session_state.component_details['inverter']['Count']),
+                "manufacturer_model": st.session_state.component_details['inverter']['Description'],
+                "kw": float(st.session_state.component_details['inverter']['Value'])
+            }
+        
+        # Store string table data
+        if st.session_state.component_details["strings"] and st.session_state.component_details["inverter"]:
+            st.session_state.string_table_data = {
+                "num_inverters": int(st.session_state.component_details['inverter']['Count']),
+                "num_panels": int(st.session_state.component_details['module']['Count']),
+                "no_of_string": int(st.session_state.component_details['strings']['Count']) // int(st.session_state.component_details['inverter']['Count'])
+            }
+        
+        return {
+            **data,
+            "COMPONENTS": components
+        }
+    except Exception as e:
+        st.error(f"Error extracting data from PDF: {str(e)}")
+        return None
 
-# Home Page
-if not st.session_state.current_section:
-    st.markdown('<p class="big-title">Solar System Design & Schedule</p>', unsafe_allow_html=True)
+def auto_populate_system_schedule():
+    """Auto-populate system schedule with extracted data"""
+    if not st.session_state.get('component_details'):
+        return
     
+    # Auto-populate System Summary
+    if st.session_state.current_page == "System Summary":
+        if st.session_state.component_details["module"]:
+            st.session_state.system_summary_data = {
+                "DC SYSTEM SIZE": f"{st.session_state.component_details['module']['Value']} kW",
+                "AC SYSTEM SIZE": f"{st.session_state.component_details['inverter']['Value']} kW",
+                "INVERTER (PRODUCT NAME)": st.session_state.component_details['inverter']['Description'],
+                "NO OF INVERTERS": st.session_state.component_details['inverter']['Count'],
+                "SOLAR PV MODULE (PRODUCT NAME)": st.session_state.component_details['module']['Description'],
+                "NO OF SOLAR PV MODULES": st.session_state.component_details['module']['Count'],
+                "RACKING (PRODUCT NAME)": "",
+                "NO OF RACKINGS": ""
+            }
+    
+    # Auto-populate Inverter Schedule
+    elif st.session_state.current_page == "Inverter Schedule":
+        if st.session_state.component_details["inverter"]:
+            st.session_state.inverter_schedule_data = {
+                "num_rows": int(st.session_state.component_details['inverter']['Count']),
+                "manufacturer_model": st.session_state.component_details['inverter']['Description'],
+                "kw": float(st.session_state.component_details['inverter']['Value'])
+            }
+    
+    # Auto-populate String Table
+    elif st.session_state.current_page == "String Table":
+        if st.session_state.component_details["strings"] and st.session_state.component_details["inverter"]:
+            st.session_state.string_table_data = {
+                "num_inverters": int(st.session_state.component_details['inverter']['Count']),
+                "num_panels": int(st.session_state.component_details['module']['Count']),
+                "no_of_string": int(st.session_state.component_details['strings']['Count']) // int(st.session_state.component_details['inverter']['Count'])
+            }
+
+def show_design_report():
+    st.title("Design Report")
+    
+    # Add navigation buttons at the top
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        if st.button("← Back to Home", key="design_report_back_home"):
+            st.session_state.current_section = None
+            st.rerun()
+    with col2:
+        if st.button("Go to System Schedule →", key="design_report_to_schedule"):
+            st.session_state.current_section = "System Schedule"
+            st.rerun()
+    
+    # File uploader for Helioscope PDF
+    uploaded_file = st.file_uploader("Upload Helioscope PDF Report", type=["pdf"])
+    
+    if uploaded_file is not None:
+        with st.spinner("Extracting data from PDF..."):
+            # Read the PDF content
+            pdf_content = uploaded_file.read()
+            
+            # Extract data from PDF
+            extracted_data = extract_helioscope_data(pdf_content)
+            
+            if extracted_data:
+                st.session_state.helioscope_data = extracted_data
+                st.success("Data extracted successfully!")
+                
+                # Display extracted data
+                st.subheader("Extracted Data")
+                
+                # Components Table
+                if extracted_data.get('COMPONENTS'):
+                    st.write("\n**Components Table**")
+                    components_df = pd.DataFrame(extracted_data['COMPONENTS'])
+                    
+                    # Project Information
+                    st.markdown("### 📍 Project Information")
+                    st.write(f"**Project Name:** {extracted_data.get('PROJECT NAME', 'N/A')}")
+                    st.write(f"**Project Address:** {extracted_data.get('PROJECT ADDRESS', 'N/A')}")
+                    st.write(f"**Annual Production (MWh):** {extracted_data.get('ANNUAL PRODUCTION', 'N/A')}")
+                    st.write(f"**Performance Ratio (%):** {extracted_data.get('PERFORMANCE RATIO', 'N/A')}")
+                    st.write(f"**Weather Dataset:** {extracted_data.get('WEATHER DATASET', 'N/A')}")
+                    
+                    # Inverter Information
+                    st.markdown("### 🔌 Inverter Information")
+                    inverter_data = next((item for item in extracted_data['COMPONENTS'] if item['Component'] == 'Inverters'), None)
+                    if inverter_data:
+                        st.write(f"**Description:** {inverter_data['Description']}")
+                        st.write(f"**Count:** {inverter_data['Count']}, **Capacity:** {inverter_data['Value']} kW")
+                    
+                    # Strings Information
+                    st.markdown("### 🔗 Strings Information")
+                    strings_data = next((item for item in extracted_data['COMPONENTS'] if item['Component'] == 'Strings'), None)
+                    if strings_data:
+                        st.write(f"**Description:** {strings_data['Description']}")
+                        st.write(f"**Count:** {strings_data['Count']}, **Length:** {strings_data['Value']} {strings_data['Unit']}")
+                    
+                    # Module Information
+                    st.markdown("### 📦 Module Information")
+                    module_data = next((item for item in extracted_data['COMPONENTS'] if item['Component'] == 'Module'), None)
+                    if module_data:
+                        st.write(f"**Description:** {module_data['Description']}")
+                        st.write(f"**Count:** {module_data['Count']}, **Capacity:** {module_data['Value']} kW")
+                
+                # System Losses
+                if extracted_data.get('SYSTEM LOSSES'):
+                    st.write("\n**System Losses**")
+                    losses_df = pd.DataFrame(extracted_data['SYSTEM LOSSES'])
+                    st.dataframe(losses_df)
+                
+                # Add button to auto-populate system schedule
+                if st.button("Auto-populate System Schedule"):
+                    st.session_state.auto_populated = True
+                    st.session_state.current_section = "System Schedule"
+                    st.rerun()
+            else:
+                st.error("Failed to extract data from PDF")
+
+def show_home_page():
+    st.markdown('<h1 class="big-title">Solar System Design & Schedule</h1>', unsafe_allow_html=True)
+    
+    # Create two columns for the main sections
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown('<div class="main-section">', unsafe_allow_html=True)
-        st.markdown('<p class="section-header">Design Report</p>', unsafe_allow_html=True)
-        st.markdown('<p class="section-description">Upload and process Helioscope reports to automatically populate system schedules.</p>', unsafe_allow_html=True)
-        if st.button("Open Design Report", key="design_report_btn", use_container_width=True):
+        st.markdown('<div class="main-section" onclick="document.querySelector(\'#design-report\').click()">', unsafe_allow_html=True)
+        st.markdown('<h2 class="section-header">Design Report</h2>', unsafe_allow_html=True)
+        st.markdown('<p class="section-description">Upload HelioScope PDF report and extract system data</p>', unsafe_allow_html=True)
+        if st.button("Go to Design Report", key="design-report"):
             st.session_state.current_section = "Design Report"
+            st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
     
     with col2:
-        st.markdown('<div class="main-section">', unsafe_allow_html=True)
-        st.markdown('<p class="section-header">System Schedule</p>', unsafe_allow_html=True)
-        st.markdown('<p class="section-description">Manually create and manage system schedules and generate reports.</p>', unsafe_allow_html=True)
-        if st.button("Open System Schedule", key="system_schedule_btn", use_container_width=True):
+        st.markdown('<div class="main-section" onclick="document.querySelector(\'#system-schedule\').click()">', unsafe_allow_html=True)
+        st.markdown('<h2 class="section-header">System Schedule</h2>', unsafe_allow_html=True)
+        st.markdown('<p class="section-description">View and edit system schedule details</p>', unsafe_allow_html=True)
+        if st.button("Go to System Schedule", key="system-schedule"):
             st.session_state.current_section = "System Schedule"
+            st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-# Design Report Section
-elif st.session_state.current_section == "Design Report":
-    st.sidebar.markdown('<p class="section-header">Design Report</p>', unsafe_allow_html=True)
-    if st.sidebar.button("← Back to Home"):
-        reset_session_state()
+def show_system_schedule():
+    st.title("System Schedule")
     
-    st.markdown('<p class="big-title">Helioscope Report Processing</p>', unsafe_allow_html=True)
+    # Add navigation buttons at the top
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        if st.button("← Back to Home", key="system_schedule_back_home"):
+            st.session_state.current_section = None
+            st.rerun()
+    with col2:
+        if st.button("Go to Design Report →", key="system_schedule_to_design"):
+            st.session_state.current_section = "Design Report"
+            st.rerun()
     
-    with st.container():
-        st.markdown('<div class="workflow-step">', unsafe_allow_html=True)
-        uploaded_file = st.file_uploader("Upload your Helioscope PDF Report", type=["pdf"])
-        
-        if uploaded_file is not None:
-            try:
-                with st.spinner("Processing Helioscope report..."):
-                    # Cache the file content
-                    file_content = uploaded_file.read()
-                    components_data_str = extract_components_from_pdf(file_content)
-                    parsed_data = parse_helioscope_data(components_data_str)
-                    st.session_state.helioscope_data = parsed_data
-                    
-                    # Display extracted data
-                    st.success("Report uploaded and processed successfully!")
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Inverters", f"{parsed_data['inverter_count']}x", parsed_data["inverter_model"])
-                    with col2:
-                        st.metric("Modules", f"{parsed_data['module_count']}x", parsed_data["module_model"])
-                    with col3:
-                        st.metric("Strings", f"{parsed_data['string_count']}x", parsed_data["string_config"])
-                    
-                    # Generate PDFs in parallel using cached data
-                    with st.spinner("Generating system schedule PDFs..."):
-                        # Cache PDF generation results
-                        if "System_Summary.pdf" not in st.session_state.pdf_cache:
-                            system_summary_data = {
-                                "DC SYSTEM SIZE": f"{parsed_data['module_count'] * 0.575} kW",
-                                "AC SYSTEM SIZE": f"{parsed_data['inverter_count'] * 50} kW",
-                                "INVERTER (PRODUCT NAME)": parsed_data["inverter_model"],
-                                "NO OF INVERTERS": str(parsed_data["inverter_count"]),
-                                "SOLAR PV MODULE (PRODUCT NAME)": parsed_data["module_model"],
-                                "NO OF SOLAR PV MODULES": str(parsed_data["module_count"]),
-                                "RACKING (PRODUCT NAME)": "Standard Racking",
-                                "NO OF RACKINGS": str(parsed_data["module_count"])
-                            }
-                            save_to_pdf_page1(system_summary_data)
-                            st.session_state.pdf_cache["System_Summary.pdf"] = True
-                            st.success("✅ System Summary PDF generated")
-                        
-                        # 2. Generate Feed Schedule PDF
-                        tags = [20.4, 30.4, 40.4, 50.5, 60.4]  # Using first 5 tags for example
-                        descriptions = [
-                            "3#12,#12N,#12G-3/4\"C", "3#10,#10N,#10G-3/4\"C",
-                            "3#8,#10N,#10G-1\"C", "3#6,#10N,#10G-1\"C",
-                            "3#4,#10N,#10G-1 1/4\"C"
-                        ]
-                        feed_df = pd.DataFrame({"TAG": list(map(str, tags)), "DESCRIPTION": descriptions})
-                        generate_pdf_page2(feed_df)
-                        st.session_state.pdf_cache["Feed_Schedule.pdf"] = True
-                        st.success("✅ Feed Schedule PDF generated")
-                        
-                        # 3. Generate Metco Equipment PDF
-                        equipment_data = [
-                            ["PV MODULES", parsed_data["module_model"], "Model X", "METCO", "Elec. Sub."],
-                            ["INVERTERS", parsed_data["inverter_model"], "Model Y", "METCO", "Elec. Sub."],
-                            ["RACKING", "Standard Racking", "Model Z", "METCO", "Elec. Sub."],
-                            ["RAPID SHUTDOWN DEVICES", "RSD Device", "Model A", "METCO", "Elec. Sub."],
-                            ["ENERGY METERING", "Standard Meter", "Model B", "METCO", "Elec. Sub."]
-                        ]
-                        generate_equipment_pdf_page3(equipment_data)
-                        st.session_state.pdf_cache["Metco_Equipment.pdf"] = True
-                        st.success("✅ Metco Equipment PDF generated")
-                        
-                        # 4. Generate Inverter Schedule PDF
-                        inverter_data = create_default_values_page4(
-                            parsed_data["inverter_count"],
-                            parsed_data["inverter_model"],
-                            3,  # phase
-                            480,  # volts
-                            "60.2",  # fla
-                            50,  # kw
-                            50,  # mocp
-                            '3-#6, 2-#6 1 "C, EMT',  # mocs
-                            "100A",  # dcda
-                            "3R",  # dcdnr
-                            "100A",  # acda
-                            "3R",  # acdnr
-                            "Standard Installation"  # remarks
-                        )
-                        inverter_df = pd.DataFrame(inverter_data, columns=[
-                            "TAG", "#", "DESCRIPTION", "MANUFACTURER\nAND MODEL", "PHASE", "VOLTS", 
-                            "FLA", "Kw", "FED TO", "MOCP", "MINIMUM CONDUIT\nAND CABLE SIZE", 
-                            "APPROXIMATE\nLENGTH OF RUN", "VOLTAGE DROP\nINVERTER TO POI", 
-                            "DC DISCONNECT\nAMPERAGE", "DC DISCONNECT\nNEMA RATING",
-                            "AC DISCONNECT\nAMPERAGE", "AC DISCONNECT\nNEMA RATING", "REMARKS"
-                        ])
-                        generate_pdf_page4(inverter_df)
-                        st.session_state.pdf_cache["inverter_schedule.pdf"] = True
-                        st.success("✅ Inverter Schedule PDF generated")
-                        
-                        # 5. Generate String Table PDF
-                        try:
-                            # Get values from parsed data with validation
-                            num_panels = int(parsed_data.get('module_count', 0))
-                            num_inverters = int(parsed_data.get('inverter_count', 0))
-                            num_strings = int(parsed_data.get('string_count', 0))
-                            
-                            # Validate values with detailed error messages
-                            if num_panels <= 0:
-                                raise ValueError("Invalid number of panels in the report. Please check the Helioscope report.")
-                            if num_inverters <= 0:
-                                raise ValueError("Invalid number of inverters in the report. Please check the Helioscope report.")
-                            if num_strings <= 0:
-                                raise ValueError("Invalid number of strings in the report. Please check the Helioscope report.")
-                            
-                            # Set up table parameters with validation
-                            total_strings = max(10, num_strings)  # Ensure minimum of 10 strings
-                            mppt_labels = [f"Mppt {((i // 5) + 1)}" for i in range(total_strings)]
-                            string_labels = [f"String {i+1}" for i in range(total_strings)]
-                            module_labels = ["MODULE COUNT"] * total_strings
-                            
-                            # Initialize table data with validation
-                            if num_inverters > 0:
-                                data = [["INV", i + 1] + ["-"] * total_strings for i in range(num_inverters)]
-                            else:
-                                raise ValueError("Cannot create table with zero inverters")
-                            
-                            # Calculate optimal panels per string with validation
-                            if num_panels > 0:
-                                best_panels_per_string = min(range(5, 18), key=lambda x: abs(num_panels - (x * (num_panels // x))))
-                                remainder = num_panels - (best_panels_per_string * (num_panels // best_panels_per_string))
-                            else:
-                                raise ValueError("Cannot calculate panels per string with zero panels")
-                            
-                            # Calculate number of columns to be filled with validation
-                            if num_inverters > 0 and num_strings > 0:
-                                no_of_col_to_be_filled = min(7, max(1, int(num_strings / num_inverters)))
-                            else:
-                                raise ValueError("Cannot calculate columns to be filled with invalid inverter or string count")
-                            
-                            # Fill the table
-                            data = fill_table_page5(
-                                data,
-                                num_inverters,
-                                best_panels_per_string,
-                                remainder,
-                                no_of_col_to_be_filled,
-                                total_strings,
-                                2    # no_of_mppt
-                            )
-                            
-                            # Create DataFrame
-                            string_df = pd.DataFrame(data, columns=["TAG", "#"] + string_labels)
-                            string_df.columns = pd.MultiIndex.from_tuples(
-                                [("TAG", "", ""), ("#", "", "")] + list(zip(string_labels, mppt_labels, module_labels))
-                            )
-                            
-                            # Generate PDF
-                            pdf_buffer = create_pdf_page5(string_df)
-                            with open("stringing_table.pdf", "wb") as f:
-                                f.write(pdf_buffer.getvalue())
-                            st.session_state.pdf_cache["stringing_table.pdf"] = True
-                            st.success("✅ String Table PDF generated")
-                            
-                        except ValueError as ve:
-                            st.error(f"Validation Error: {str(ve)}")
-                            st.warning("Please check the Helioscope report data and try again.")
-                        except Exception as e:
-                            st.error(f"Error generating String Table: {str(e)}")
-                            st.warning("Please check the input data and try again.")
-                        
-                        # 6. Generate Panel Schedule PDF
-                        panel_details = {
-                            "Panel": "PV-DP",
-                            "Location": "Main Electric Room",
-                            "AMP MAIN BKR": 350,
-                            "AIC RATING": 14000,
-                            "Mount": "SURFACE",
-                            "Fed From": "Inverters",
-                            "Volts": "480 / 277",
-                            "PH": "3",
-                            "Wire": "4 Wire"
-                        }
-                        
-                        inverter_rows = []
-                        for i in range(parsed_data["inverter_count"]):
-                            for j in range(3):  # 3-phase
-                                inverter_rows.append({
-                                    "Circuit Description": f"INVERTER {i+1}" if j == 0 else "",
-                                    "Load VA": "30000",
-                                    "CKT BKR": "50" if j == 0 else "",
-                                    "Phase": "3" if j == 0 else "",
-                                    "Circuit #": len(inverter_rows) + 1
-                                })
-                        
-                        panel_df = pd.DataFrame(inverter_rows)
-                        generate_pdf_page6(panel_details, panel_df)
-                        st.session_state.pdf_cache["panel_schedule.pdf"] = True
-                        st.success("✅ Panel Schedule PDF generated")
-                        
-                        # Generate Combined PDF
-                        st.info("Creating combined report...")
-                        required_pdfs = [
-                            "System_Summary.pdf",
-                            "Feed_Schedule.pdf",
-                            "Metco_Equipment.pdf",
-                            "inverter_schedule.pdf",
-                            "stringing_table.pdf",
-                            "panel_schedule.pdf"
-                        ]
-                        
-                        # Check if all required PDFs exist
-                        missing_pdfs = [pdf for pdf in required_pdfs if not os.path.exists(pdf)]
-                        if missing_pdfs:
-                            st.error(f"Missing PDFs: {', '.join(missing_pdfs)}")
-                            st.warning("Please ensure all PDFs are generated before creating the combined report.")
-                        else:
-                            try:
-                                combined_pdf = merge_pdfs(required_pdfs)
-                                if combined_pdf and os.path.exists(combined_pdf):
-                                    st.success("✅ Complete system report generated successfully!")
-                                    with open(combined_pdf, "rb") as file:
-                                        st.download_button(
-                                            "📥 Download Complete System Report",
-                                            data=file.read(),
-                                            file_name="Solar_System_Report.xlsx",
-                                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                            key="download_complete"
-                                        )
-                            except Exception as e:
-                                st.error(f"Error creating combined PDF: {str(e)}")
-                                st.warning("Please try generating the report again.")
-            except Exception as e:
-                st.error(f"Error processing PDF: {str(e)}")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-# System Schedule Section
-elif st.session_state.current_section == "System Schedule":
-    st.sidebar.markdown('<p class="section-header">System Schedule</p>', unsafe_allow_html=True)
-    if st.sidebar.button("← Back to Home"):
-        reset_session_state()
+    # Auto-populate data if available
+    auto_populate_system_schedule()
     
     # Cache the radio selection to improve performance
     if 'system_schedule_page' not in st.session_state:
@@ -685,24 +617,16 @@ elif st.session_state.current_section == "System Schedule":
                 "SOLAR PV MODULE (PRODUCT NAME)": solar_pv_module,
                 "NO OF SOLAR PV MODULES": no_of_solar_pv_modules,
             }
-            # Convert data to DataFrame
-            df = pd.DataFrame([data])
-            df = df.T.reset_index()
-            df.columns = ['Field', 'Value']
-            
-            # Save to CSV
-            buffer = BytesIO()
-            df.to_csv(buffer, index=False)
-            buffer.seek(0)
-            
-            st.session_state["csv_data_page1"] = buffer.getvalue()
-            st.success("CSV file generated successfully!")
-            st.download_button(
-                "📄 Download System Summary",
-                data=st.session_state["csv_data_page1"],
-                file_name="System_Summary.csv",
-                mime="text/csv"
-            )
+            pdf_file = save_to_pdf_page1(data)
+            with open(pdf_file, "rb") as file:
+                st.session_state["pdf_data_page1"] = file.read()
+                st.success("PDF generated successfully!")
+                st.download_button(
+                    "📄 Download System Summary PDF",
+                    data=st.session_state["pdf_data_page1"],
+                    file_name="System_Summary.pdf",
+                    mime="application/pdf"
+                )
     
     elif st.session_state.current_page == "Feed Schedule":
         st.title("Feed Schedule - 600V MAX")
@@ -711,7 +635,7 @@ elif st.session_state.current_section == "System Schedule":
             250.4, 300.4, 400.4, 500.4, 600.4, 700.4, 800.4, 900.4, 1000.4, 1600.4, 2000.4, 2500.4, 4000.4
         ]
         descriptions = [
-            "3#12,#12N,#12G-3/4\"C", "3#10,#10N,#10G-3/4\"C", "3#8,#10N,#10G-1\"C", "3#6,#10N,#10G-1\"C",
+            "3#12,#12N,#10G-3/4\"C", "3#10,#10N,#10G-3/4\"C", "3#8,#10N,#10G-1\"C", "3#6,#10N,#10G-1\"C",
             "3#4,#10N,#10G-1 1/4\"C", "3#4,#8N,#8G-1 1/4\"C", "3#3,#8N,#8G-1 1/4\"C", "3#2,#8N,#8G-1 1/2\"C",
             "3#2,#8N,#8G-1 1/2\"C", "3#1,#6N,#6G-1 1/2\"C", "3#1/0,#6N,#6G-2\"C", "3#2/0,#6N,#6G-2\"C",
             "3#3/0,#6N,#6G-2\"C", "3#4/0,#4N,#4G-2 1/2\"C", "3-250KCMIL, #4N,#4G-2 1/2\"C",
@@ -783,12 +707,12 @@ elif st.session_state.current_section == "System Schedule":
         
         col1, col2 = st.columns(2)
         with col1:
-            num_rows = st.number_input("Number of Inverters", min_value=1, value=1, step=1)
-            manufacturer_model = st.text_input("Manufacturer and Model", "CPS- SCA50KTL-DO/US-480 - 50 kW")
+            num_rows = st.number_input("Number of Inverters", min_value=1, value=st.session_state.inverter_schedule_data.get("num_rows", 1), step=1)
+            manufacturer_model = st.text_input("Manufacturer and Model", st.session_state.inverter_schedule_data.get("manufacturer_model", "CPS- SCA50KTL-DO/US-480 - 50 kW"))
             phase = st.number_input("Phase", min_value=1, max_value=1000, value=3, step=1)
             volts = st.number_input("Volts", min_value=100, max_value=1000, value=480, step=1)
             fla = st.text_input("FLA", "60.2")
-            kw = st.number_input("Kilowatts (kW)", min_value=1, max_value=100, value=50, step=1)
+            kw = st.number_input("Kilowatts (kW)", min_value=1, max_value=100, value=st.session_state.inverter_schedule_data.get("kw", 50), step=1)
         
         with col2:
             mocp = st.number_input("MOCP", min_value=1, max_value=100, value=50, step=1)
@@ -839,14 +763,14 @@ elif st.session_state.current_section == "System Schedule":
         with st.form("string_table_form"):
             col1, col2 = st.columns(2)
             with col1:
-                num_inverters = st.number_input("Enter number of inverters:", min_value=1, value=1)
-                num_panels = st.number_input("Enter number of panels:", min_value=1, value=1)
+                num_inverters = st.number_input("Enter number of inverters:", min_value=1, value=st.session_state.string_table_data.get("num_inverters", 1))
+                num_panels = st.number_input("Enter number of panels:", min_value=1, value=st.session_state.string_table_data.get("num_panels", 1))
                 panels_in_1_inverter = num_panels / num_inverters if num_inverters > 0 else 0
                 st.write(f"Panels in one inverter: {panels_in_1_inverter}")
             
             with col2:
                 no_of_mppt = st.number_input("No of MPPT (In 1 inverter):", min_value=1, value=1)
-                no_of_string = st.number_input("Total No of String (In 1 MPPT):", min_value=1, value=1)
+                no_of_string = st.number_input("Total No of String (In 1 MPPT):", min_value=1, value=st.session_state.string_table_data.get("no_of_string", 1))
                 total_strings = no_of_mppt * no_of_string
                 st.write(f"Total number of Strings: {total_strings}")
             
@@ -872,7 +796,8 @@ elif st.session_state.current_section == "System Schedule":
                     remainder,
                     no_of_col_to_be_filled,
                     total_strings,
-                    no_of_mppt
+                    no_of_mppt,
+                    num_panels
                 )
                 
                 df = pd.DataFrame(data, columns=["TAG", "#"] + string_labels)
@@ -885,24 +810,25 @@ elif st.session_state.current_section == "System Schedule":
                 
                 st.session_state.string_table_df = df
                 st.session_state.string_table_data = data
-                
-                if st.button("Generate PDF"):
-                    pdf_buffer = create_pdf_page5(df)
-                    with open("stringing_table.pdf", "wb") as f:
-                        f.write(pdf_buffer.getvalue())
-                    st.success("PDF generated successfully!")
-                    st.download_button(
-                        "📄 Download String Table PDF",
-                        data=pdf_buffer,
-                        file_name="stringing_table.pdf",
-                        mime="application/pdf"
-                    )
-                
-                st.write(f"Optimal panels per string: {best_panels_per_string}")
-                st.write(f"Optimal number of columns to be filled: {no_of_col_to_be_filled}")
-                st.write(f"Total panels in table: {sum(sum(int(cell) for cell in row[2:] if isinstance(cell, int)) for row in data)}")
             except Exception as e:
-                st.error(f"Error generating table: {str(e)}")
+                st.error(f"Error generating string table: {str(e)}")
+        
+        # Move PDF generation outside the submit button block
+        if st.session_state.get('string_table_df') is not None:
+            if st.button("Generate PDF", key="string_table_pdf"):
+                try:
+                    pdf_file = create_pdf_page5(st.session_state.string_table_df)
+                    with open(pdf_file, "rb") as file:
+                        st.session_state["pdf_page5"] = file.read()
+                        st.success("PDF generated successfully!")
+                        st.download_button(
+                            "📄 Download String Table PDF",
+                            data=st.session_state["pdf_page5"],
+                            file_name="stringing_table.pdf",
+                            mime="application/pdf"
+                        )
+                except Exception as e:
+                    st.error(f"Error generating PDF: {str(e)}")
 
     elif st.session_state.current_page == "Panel Schedule":
         st.title("Panel Schedule")
@@ -1021,8 +947,8 @@ elif st.session_state.current_section == "System Schedule":
                             st.download_button(
                                 "📥 Download Complete System Report",
                                 data=file.read(),
-                                file_name="Solar_System_Report.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                file_name="Solar_System_Report.pdf",
+                                mime="application/pdf",
                                 key="download_complete"
                             )
                 except Exception as e:
@@ -1031,4 +957,16 @@ elif st.session_state.current_section == "System Schedule":
             else:
                 st.warning("Please generate all required PDFs before downloading the complete report.")
 
-# ... rest of the existing code ... 
+def main():
+    # Home Page
+    if not st.session_state.current_section:
+        show_home_page()
+    # Design Report Section
+    elif st.session_state.current_section == "Design Report":
+        show_design_report()
+    # System Schedule Section
+    elif st.session_state.current_section == "System Schedule":
+        show_system_schedule()
+
+if __name__ == "__main__":
+    main() 
