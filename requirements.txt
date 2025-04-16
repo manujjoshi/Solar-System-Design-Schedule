@@ -1,6 +1,6 @@
 fpdf
-fitz
 frontend
 tools
 PyPDF2
 reportlab
+PyMuPDF
