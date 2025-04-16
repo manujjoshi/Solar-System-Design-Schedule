@@ -712,8 +712,18 @@ def show_system_schedule():
             phase = st.number_input("Phase", min_value=1, max_value=1000, value=3, step=1)
             volts = st.number_input("Volts", min_value=100, max_value=1000, value=480, step=1)
             fla = st.text_input("FLA", "60.2")
-            kw = st.number_input("Kilowatts (kW)", min_value=1, max_value=100, value=st.session_state.inverter_schedule_data.get("kw", 50), step=1)
-        
+
+            #kw = st.number_input("Kilowatts (kW)", min_value=1, max_value=100, value=st.session_state.inverter_schedule_data.get("kw", 50), step=1)
+            kw = st.number_input(
+                    "Kilowatts (kW)",
+                    min_value=1.0,
+                    max_value=100.0,
+                    value=float(st.session_state.inverter_schedule_data.get("kw", 50)),
+                    step=0.5
+                )
+
+
+
         with col2:
             mocp = st.number_input("MOCP", min_value=1, max_value=100, value=50, step=1)
             mocs = st.text_input("MINIMUM CONDUIT AND CABLE SIZE", '3-#6, 2-#6 1 "C, EMT')
