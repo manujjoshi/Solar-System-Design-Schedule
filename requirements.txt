@@ -2,3 +2,4 @@ fpdf
 fitz
 frontend
 tools
+PyPDF2
