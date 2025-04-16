@@ -717,7 +717,7 @@ def show_system_schedule():
             kw = st.number_input(
                     "Kilowatts (kW)",
                     min_value=1.0,
-                    max_value=100.0,
+                    max_value=1000.0,
                     value=float(st.session_state.inverter_schedule_data.get("kw", 50)),
                     step=0.5
                 )
