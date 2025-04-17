@@ -250,6 +250,15 @@ st.set_page_config(
 # Custom CSS
 st.markdown("""
     <style>
+    .logo-container {
+        display: flex;
+        justify-content: center;
+        margin-bottom: 20px;
+    }
+    .logo {
+        max-width: 200px;
+        height: auto;
+    }
     .main-section {
         background-color: #f0f2f6;
         padding: 20px;
@@ -283,11 +292,24 @@ st.markdown("""
         border: 1px solid #dee2e6;
     }
     .big-title {
-        font-size: 42px;
+        font-size: 38px;
         font-weight: bold;
         color: #1f77b4;
         margin-bottom: 40px;
         text-align: center;
+    }
+    .stButton > button {
+        width: 100%;
+        background-color: #1f77b4;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 5px;
+        font-size: 16px;
+        transition: background-color 0.3s;
+    }
+    .stButton > button:hover {
+        background-color: #1565c0;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -531,28 +553,40 @@ def show_design_report():
                 st.error("Failed to extract data from PDF")
 
 def show_home_page():
-    st.markdown('<h1 class="big-title">Solar System Design & Schedule</h1>', unsafe_allow_html=True)
+    # Centered logo and title
+    st.markdown("""
+        <div style='display: flex; flex-direction: column; align-items: center; justify-content: center; margin-bottom: 30px;'>
+            <img src='https://media.licdn.com/dms/image/v2/C4D0BAQGVrL8T6AkjAg/company-logo_200_200/company-logo_200_200/0/1630563478826/metco_engineering_inc_logo?e=2147483647&v=beta&t=FfjIApcjfNOHWBq5YvwS24YukcS7o6IJi5kEC9WBR20' style='width: 150px; margin-bottom: 10px;'>
+            <h1 style='color: #1f77b4; font-size: 36px; margin: 0; white-space: nowrap;'>Solar System Design & Schedule</h1>
+        </div>
+    """, unsafe_allow_html=True)
     
     # Create two columns for the main sections
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown('<div class="main-section" onclick="document.querySelector(\'#design-report\').click()">', unsafe_allow_html=True)
-        st.markdown('<h2 class="section-header">Design Report</h2>', unsafe_allow_html=True)
-        st.markdown('<p class="section-description">Upload HelioScope PDF report and extract system data</p>', unsafe_allow_html=True)
-        if st.button("Go to Design Report", key="design-report"):
+        # Design Report Section
+        st.markdown("""
+            <div style='text-align: center;'>
+                <h2 style='color: #1f77b4;'>Design Report</h2>
+                <p style='color: #555; margin-bottom: 15px;'>Upload HelioScope PDF report and extract system data</p>
+            </div>
+        """, unsafe_allow_html=True)
+        if st.button("Go to Design Report", key="design-report", use_container_width=True):
             st.session_state.current_section = "Design Report"
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
     
     with col2:
-        st.markdown('<div class="main-section" onclick="document.querySelector(\'#system-schedule\').click()">', unsafe_allow_html=True)
-        st.markdown('<h2 class="section-header">System Schedule</h2>', unsafe_allow_html=True)
-        st.markdown('<p class="section-description">View and edit system schedule details</p>', unsafe_allow_html=True)
-        if st.button("Go to System Schedule", key="system-schedule"):
+        # System Schedule Section
+        st.markdown("""
+            <div style='text-align: center;'>
+                <h2 style='color: #1f77b4;'>System Schedule</h2>
+                <p style='color: #555; margin-bottom: 15px;'>View and edit system schedule details</p>
+            </div>
+        """, unsafe_allow_html=True)
+        if st.button("Go to System Schedule", key="system-schedule", use_container_width=True):
             st.session_state.current_section = "System Schedule"
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
 
 def show_system_schedule():
     st.title("System Schedule")
@@ -712,7 +746,6 @@ def show_system_schedule():
             phase = st.number_input("Phase", min_value=1, max_value=1000, value=3, step=1)
             volts = st.number_input("Volts", min_value=100, max_value=1000, value=480, step=1)
             fla = st.text_input("FLA", "60.2")
-
             #kw = st.number_input("Kilowatts (kW)", min_value=1, max_value=100, value=st.session_state.inverter_schedule_data.get("kw", 50), step=1)
             kw = st.number_input(
                     "Kilowatts (kW)",
@@ -721,8 +754,6 @@ def show_system_schedule():
                     value=float(st.session_state.inverter_schedule_data.get("kw", 50)),
                     step=0.5
                 )
-
-
 
         with col2:
             mocp = st.number_input("MOCP", min_value=1, max_value=100, value=50, step=1)
