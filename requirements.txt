@@ -1,6 +1,42 @@
-fpdf
-frontend
-tools
-PyPDF2
-reportlab
-PyMuPDF
+🚀 Open to Remote Opportunities | Data Scientist | Generative AI | 3+ Years of Experience
+
+Hi everyone! I’m currently open to remote roles where I can apply my expertise in Data Science, Generative AI, and Intelligent Automation to create value-driven solutions at scale.
+
+With 3+ years of industry experience, I bring hands-on knowledge in:
+
+🔹 Generative AI, LLMs (LLaMA, GPT, Mistral), RAG Pipelines, AI Agents
+
+ 🔹 Machine Learning, NLP, Computer Vision
+
+ 🔹 SQL, Databricks, API Development
+
+ 🔹 Streamlit, Power BI, Tableau
+
+ 🔹 Azure (AI-102, DP-100, AI-900 Certified)
+
+📌 Highlighted Projects:
+
+🤖 LLM Optimization with RAG Pipeline – Deployed retrieval-augmented generation for scalable enterprise search.
+
+🔧 API Task Scheduling Agent – Built an agent that automates API calls based on workflow triggers.
+
+📊 AI-Powered SQL Generation Agent – Empowered non-technical users to generate database queries using LLMs.
+
+🌞 Real-Time Solar Dashboard Migration to Azure – Created a live energy monitoring dashboard for solar plants.
+
+💡 Visual + Textual Recommendation System – Developed hybrid recommendation engines for lighting products.
+
+🎯 Lead Scoring & Email Automation – Implemented predictive models and GenAI-driven email workflows.
+
+🧠 BERT-Based NLP Pipelines – Built summarization, sentiment analysis, and NER models for enterprise text data.
+
+📷 Solar Panel Fault Detection – Used SOTA computer vision for segmentation and classification of solar faults.
+
+🛰️ Solar Potential Estimation – Detected optimal rooftop areas for solar panel installation using satellite imagery.
+
+I’m excited to contribute to teams that are building the next generation of AI products. If you're hiring or know of a remote opportunity where my background fits, I’d love to connect!
+
+📫 Let’s talk: manujjoshi52@gmail.com
+
+
+#GenerativeAI #RemoteJobs #DataScientist #OpenToWork #MachineLearning #LLM #RAG #AI #ComputerVision #Azure #Databricks #Streamlit #NLP #AIJobs
